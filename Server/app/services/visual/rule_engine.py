@@ -483,6 +483,56 @@ def _five_words(text: str) -> str:
     return " ".join(w[:5]).strip()
 
 
+def _three_words(text: str) -> str:
+    w = (text or "").split()
+    return " ".join(w[:3]).strip()
+
+
+def _teaching_intent_for_slot(
+    index: int,
+    n_elements: int,
+    is_cause: bool,
+    is_effect: bool,
+    actor_type: str,
+    cognitive_load: str,
+) -> str:
+    """
+    Pedagogical role for rendering emphasis — distinct from layout emphasis.
+    cause / effect / context / support
+    """
+    if actor_type == "label":
+        return "support"
+    if n_elements == 1 and cognitive_load == "low":
+        return "effect"
+    if is_cause:
+        return "cause"
+    if is_effect:
+        return "effect"
+    if n_elements >= 3 and index == 2:
+        return "context"
+    return "support"
+
+
+def _teaching_cluster_id(index: int, n_elements: int) -> int:
+    """Overload tier: pair-wise clusters (0–1), (2–3), … — relates parts without chaos."""
+    if n_elements <= 2:
+        return 0
+    return index // 2
+
+
+VISUAL_TEACHING_LANGUAGE = {
+    "low":    "story",    # simple narrative demo
+    "medium": "diagram",  # guided reasoning / structured flow
+    "high":   "system",   # relationships + clusters
+}
+
+TEACHING_STRATEGY = {
+    "low":    "demonstrate_single_link",
+    "medium": "guide_step_reasoning",
+    "high":   "map_relationship_clusters",
+}
+
+
 def _intra_scene_timeline(
     emphasis: str,
     cognitive_load: str,
@@ -756,11 +806,20 @@ def _unit_to_scene(
         elif len(elements) == 1:
             emphasis = "primary"
 
+        ti = _teaching_intent_for_slot(
+            i, len(elements), is_cause, is_effect, actor_type, cognitive_load,
+        )
+        mot_i = {"low": 1.45, "medium": 1.08, "high": 0.98}.get(cognitive_load, 1.0)
+        if cognitive_load == "low" and len(elements) == 2:
+            mot_i = max(mot_i, 1.52)
+
         actor: dict[str, Any] = {
             "id":        actor_id,
             "type":      actor_type,
             "role":      "cause" if is_cause else ("effect" if is_effect else "context"),
             "emphasis":  emphasis,
+            "teaching_intent": ti,
+            "motionIntensity": mot_i,
             "x":         x,
             "y":         y,
             "size":      size,
@@ -768,6 +827,8 @@ def _unit_to_scene(
             "animation": anim,
             "timeline":  _intra_scene_timeline(emphasis, cognitive_load, is_summary=is_summary),
         }
+        if cognitive_load == "high":
+            actor["teaching_cluster_id"] = _teaching_cluster_id(i, len(elements))
 
         # Type-specific fields
         if actor_type == "molecule" and element in MOLECULE_TYPES:
@@ -860,6 +921,11 @@ def _unit_to_scene(
     if is_summary:
         text = focus
 
+    if cognitive_load == "low" and not is_summary:
+        learning_goal = _three_words(learning_goal)
+        focus = _three_words(focus)
+        text = _three_words(text)
+
     st = str(unit.get("_syllabus_topic") or "").strip()
     vt = topic_visual_pattern(st) if st else "process"
 
@@ -897,6 +963,11 @@ def _unit_to_scene(
             "is_summary":      is_summary,
             "playback_speed":  PLAYBACK_SPEED.get(cognitive_load, 1.0),
             "scene_transition_ms": SCENE_TRANSITION_MS.get(cognitive_load, 400),
+            "visual_teaching_language": VISUAL_TEACHING_LANGUAGE.get(cognitive_load, "diagram"),
+            "teaching_strategy": TEACHING_STRATEGY.get(cognitive_load, "guide_step_reasoning"),
+            "guided_reasoning": cognitive_load == "medium",
+            "relational_clusters": cognitive_load == "high",
+            "demonstration_only": cognitive_load == "low" and not is_summary,
         },
     }
     _log_animation_link_integrity(unit_id, actors, scene_animations)
@@ -1010,11 +1081,18 @@ def plan_to_script(visual_plan: dict) -> dict:
             "domain": visual_plan.get("domain"),
             "playback_speed": PLAYBACK_SPEED.get(cognitive_load, 1.0),
             "scene_transition_ms": SCENE_TRANSITION_MS.get(cognitive_load, 400),
+            "visual_teaching_language": VISUAL_TEACHING_LANGUAGE.get(cognitive_load, "diagram"),
+            "teaching_strategy": TEACHING_STRATEGY.get(cognitive_load, "guide_step_reasoning"),
         },
     }
     cg = visual_plan.get("concept_graph")
     if isinstance(cg, dict):
         script["concept_graph"] = cg
+
+    for si, sc in enumerate(scenes):
+        meta = sc.setdefault("meta", {})
+        meta["lesson_step_index"] = si
+        meta["lesson_step_count"] = len(scenes)
 
     logger.info("[rule_engine] Script built: %d scenes, %dms total for '%s' [%s]",
                 len(scenes), current_start, concept, cognitive_load)
