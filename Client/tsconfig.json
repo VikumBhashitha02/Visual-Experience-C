@@ -1,0 +1,27 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    }
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts",
+    "nativewind-env.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "animation/domains/chapter1-2",
+    "animation/domains/chapter 3-4",
+    "animation/domains/chapter5-6",
+    "animation/domains/chapter 7-8",
+    "animation/domains/chapter 9-10",
+    "animation/domains/chapter 11"
+  ]
+}
